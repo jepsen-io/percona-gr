@@ -47,7 +47,8 @@
         v' (case f
              :r (let [r (j/execute! conn
                                     [(str "select (val) from " table " where "
-                                          "id = ?")
+                                          (if (< (rand) 0.5) "id" "sk")
+                                          " = ?")
                                      k]
                                     {:builder-fn rs/as-unqualified-lower-maps})]
                   (when-let [v (:val (first r))]
