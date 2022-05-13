@@ -38,6 +38,64 @@
           " on duplicate key update val = CONCAT(val, ',', ?)")
      k k e e]))
 
+
+(defn insert!
+  "Performs an initial insert of a key with initial element e. Catches
+  duplicate key exceptions, returning true if succeeded. If the insert fails
+  due to a duplicate key, it'll break the rest of the transaction, assuming
+  we're in a transaction, so we establish a savepoint before inserting and roll
+  back to it on failure."
+  [conn test txn? table k e]
+  (try
+    (info (if txn? "" "not") "in transaction")
+    (when txn? (j/execute! conn ["savepoint upsert"]))
+    (info :insert (j/execute! conn
+                              [(str "insert into " table " (id, sk, val)"
+                                    " values (?, ?, ?)")
+                               k k (str e)]))
+    (when txn? (j/execute! conn ["release savepoint upsert"]))
+    true
+    ;(catch org.postgresql.util.PSQLException e
+    ;  (if (re-find #"duplicate key value" (.getMessage e))
+    ;    (do (info (if txn? "txn") "insert failed: " (.getMessage e))
+    ;        (when txn? (j/execute! conn ["rollback to savepoint upsert"]))
+    ;        false)
+    ;    (throw e)))
+    ))
+
+(defn update!
+  "Performs an update of a key k, adding element e. Returns true if the update
+  succeeded, false otherwise."
+  [conn test table k e]
+  (let [res (-> conn
+                (j/execute-one! [(str "update " table " set val = CONCAT(val, ',', ?)"
+                                      " where " (if (< (rand) 0.5) "id" "sk")
+                                      " = ?")
+                                 (str e) k]))]
+    (info :update res)
+    (-> res
+        :next.jdbc/update-count
+        pos?)))
+
+(defn append-using-update-or-insert!
+  "Appends an element to a key using an UPDATE, and if that fails, backing off
+  to an INSERT."
+  [conn test txn? table k e]
+  (or ; Start by updating in-place
+      (update! conn test table k e)
+      ; Well, that failed--fall back to an insert.
+      (insert! conn test txn? table k e)
+      ; If that failed we probably raced with another txn--perhaps we're
+      ; running at a low isolation level. Try the upsert again, since the row
+      ; apparently exists now.
+      (update! conn test table k e)
+      ; If that failed, uh, ???
+      (throw+ {:type    ::homebrew-upsert-failed
+               :txn?    txn?
+               :table   table
+               :key     k
+               :element e})))
+
 (defn mop!
   "Apply a single transaction micro-operation on a connection. Returns the
   completed micro-op."
@@ -55,7 +113,9 @@
                     (mapv parse-long (str/split v #","))))
 
              :append
-             (do (append-using-on-duplicate-key! conn test table k v)
+             (do (if (< (rand) 0.5)
+                   (append-using-on-duplicate-key! conn test table k v)
+                   (append-using-update-or-insert! conn test txn? table k v))
                  v))]
     [f k v']))
 
