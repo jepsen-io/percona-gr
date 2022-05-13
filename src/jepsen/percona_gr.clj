@@ -139,7 +139,7 @@
                     " or the special faults all or none.")]]
 
    [nil "--nemesis-interval SECS" "Roughly how long between nemesis operations."
-    :default  20
+    :default  10
     :parse-fn read-string
     :validate [pos? "Must be a positive integer."]]
 
