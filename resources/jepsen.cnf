@@ -1,0 +1,45 @@
+[mysqld]
+plugin-load-add='mysql_clone.so'
+
+# Following https://dev.mysql.com/doc/refman/8.0/en/group-replication-configuring-instances.html
+disabled_storage_engines="MyISAM,BLACKHOLE,FEDERATED,ARCHIVE,MEMORY"
+
+# Replication Framework
+server_id=%SERVER_ID%
+gtid_mode=ON
+enforce_gtid_consistency=ON
+#binlog_checksum=NONE # Not needed in 8.0.21+
+log_bin=binlog
+log_replica_updates=ON
+binlog_format=ROW
+
+# Group replication settings
+plugin-load-add='group_replication.so'
+# Generated via `select uuid()`
+group_replication_group_name='1892bb34-d085-11ec-9682-001e62aaaa01'
+group_replication_start_on_boot=%GR_START_ON_BOOT%
+group_replication_local_address="%GR_LOCAL_ADDRESS%"
+group_replication_group_seeds="%GR_SEEDS%"
+group_replication_bootstrap_group=off
+
+loose_group_replication_exit_state_action=READ_ONLY
+loose-group_replication_consistency=BEFORE_ON_PRIMARY_FAILOVER
+loose-group_replication_single_primary_mode=ON
+
+# Secondary options
+skip_replica_start
+replica_parallel_type=LOGICAL_CLOCK
+replica_preserve_commit_order=1
+replica_parallel_workers=32
+
+super_read_only=%SUPER_READ_ONLY%
+
+# We have to stop GR as a part of restarting the cluster, which we have to do during setup, so we lower the timeout here.
+group_replication_components_stop_timeout=5
+group_replication_recovery_reconnect_interval=3
+
+# Misc options to add later?
+#binlog_transaction_dependency_tracking=WRITESET
+#innodb_flush_method=O_DIRECT
+#relay_log_recovery=1
+#sync_relay_log=0
