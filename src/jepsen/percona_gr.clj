@@ -11,7 +11,8 @@
                     [util :as util :refer [parse-long]]]
             [jepsen.os.debian :as debian]
             [jepsen.percona-gr [db :as db]
-                               [list-append :as list-append]]))
+                               [list-append :as list-append]
+                               [nemesis :as nemesis]]))
 
 (def workloads
   "A map of workload names to functions which take CLI options and construct
@@ -42,6 +43,15 @@
        (map keyword)
        (mapcat #(get special-nemeses % [%]))))
 
+(def short-isolation
+  {:strict-serializable "Strong-1SR"
+   :serializable        "S"
+   :strong-snapshot-isolation "Strong-SI"
+   :snapshot-isolation  "SI"
+   :repeatable-read     "RR"
+   :read-committed      "RC"
+   :read-uncommitted    "RU"})
+
 (defn percona-gr-test
   "Given an options map from the CLI, constructs a test map."
   [opts]
@@ -50,30 +60,47 @@
         db            (if (:no-db opts)
                         jepsen.db/noop
                         (db/db opts))
-        ;nemesis       (nemesis/package
-        ;                {:db db
-        ;                 :faults (:nemesis opts)
-        ;                 :pause  {:targets [:one :primaries :majority :all]}
-        ;                 :kill   {:targets [:one :primaries :majority :all]}
-        ;                 :interval (:nemesis-interval opts)})
+        nemesis       (nemesis/package
+                        {:db        db
+                         :nodes     (:nodes opts)
+                         :faults    (:nemesis opts)
+                         ; Killing/pausing more than a single node tends to
+                         ; royally break the cluster; we'll tackle that later.
+                         :partition {:targets [:primaries]}
+                         :pause     {:targets [:primaries]}
+                         :kill      {:targets [:primaries]}
+                         :interval  (:nemesis-interval opts)})
         ]
     (merge tests/noop-test
            opts
-           {:name "percona"
+           {:name (str (name workload-name)
+                       " " (short-isolation (:isolation opts)) " ("
+                       (short-isolation (:expected-consistency-model opts)) ")"
+                       " " (str/join "," (map name (:nemesis opts))))
             :os   debian/os
             :db   db
             :checker (checker/compose
-                       {:perf       (checker/perf)
+                       {:perf       (checker/perf
+                                      {:nemeses (:perf nemesis)})
                         :clock      (checker/clock-plot)
                         :stats      (checker/stats)
                         :exceptions (checker/unhandled-exceptions)
                         :workload   (:checker workload)})
-            :client (:client workload)
-            ; :nemesis (:nemesis nemesis)
-            :generator (->> (:generator workload)
-                            (gen/stagger (/ (:rate opts)))
-                            (gen/nemesis nil)
-                            (gen/time-limit (:time-limit opts)))})))
+            :client    (:client workload)
+            :nemesis   (:nemesis nemesis)
+            :generator (gen/phases
+                         (->> (:generator workload)
+                              (gen/stagger (/ (:rate opts)))
+                              (gen/nemesis
+                                (gen/phases
+                                  (gen/sleep 10)
+                                  (->> (:generator nemesis)
+                                       (gen/time-limit (-> (:time-limit opts)
+                                                           (- 10)
+                                                           (max 0))))
+                                  (gen/log "Ending nemesis for recovery")))
+                              (gen/time-limit (-> (:time-limit opts)
+                                                  (+ (:recovery-time opts))))))})))
 
 (def cli-opts
   "Additional CLI options"
@@ -106,7 +133,7 @@
                "Faults must be pause, kill, partition, clock, or member, or the special faults all or none."]]
 
    [nil "--nemesis-interval SECS" "Roughly how long between nemesis operations."
-    :default 2
+    :default  20
     :parse-fn read-string
     :validate [pos? "Must be a positive integer."]]
 
@@ -121,6 +148,11 @@
     :default 1000
     :parse-fn read-string
     :validate [#(and (number? %) (pos? %)) "Must be a positive number"]]
+
+   [nil "--recovery-time" "How many seconds to wait for the cluster to recover at the end of the test."
+    :default  0
+    :parse-fn read-string
+    :validate [#(and (number? %) (not (neg? %))) "Must be a non-negative number"]]
 
    ["-w" "--workload NAME" "What workload should we run?"
     :parse-fn keyword

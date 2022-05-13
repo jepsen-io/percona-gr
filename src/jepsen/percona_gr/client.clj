@@ -7,10 +7,12 @@
             [next.jdbc.result-set :as rs]
             [next.jdbc.sql.builder :as sql]
             [slingshot.slingshot :refer [try+ throw+]])
-  (:import (com.mysql.cj.jdbc.exceptions CommunicationsException
+  (:import (clojure.lang ExceptionInfo)
+           (com.mysql.cj.jdbc.exceptions CommunicationsException
                                          MySQLTransactionRollbackException)
            (java.sql Connection
                      SQLException
+                     SQLNonTransientConnectionException
                      SQLSyntaxErrorException)))
 
 (def port
@@ -30,16 +32,23 @@
   "jepsenpw")
 
 (defn open
-  "Opens a connection to the given node."
-  [test node]
-  (let [spec {:dbtype "mysql"
-              :host   node
-              :port   port
-              :user   user
-              :password password}
-        ds    (j/get-datasource spec)
-        conn  (j/get-connection ds)]
-    conn))
+  "Opens a connection to the given node. Options may override any next.jdbc
+  spec options."
+  ([test node]
+   (open test node {}))
+  ([test node opts]
+   (let [spec (merge {:dbtype "mysql"
+                      :host   node
+                      :port   port
+                      :user   user
+                      :password password
+                      :connectTimeout 5000
+                      :loginTimeout   5000
+                      :socketTimeout  10000}
+                     opts)
+         ds    (j/get-datasource spec)
+         conn  (j/get-connection ds)]
+     conn)))
 
 (defn close!
   "Closes a connection."
@@ -62,19 +71,21 @@
 (defn await-open
   "Waits for a connection to a node to become available, returning conn.
   Helpful for starting up."
-  [test node]
-  (util/await-fn
-    (fn open-and-test []
-      (let [conn (open test node)]
-        (try
-          (j/execute-one! conn ["select UUID()"])
-          conn
-          (catch Throwable t
-            (close! conn)
-            (throw t)))))
-    {:retry-interval 500
-     :log-interval   10000
-     :log-message    "Waiting for MySQL"}))
+  ([test node]
+   (await-open test node {}))
+  ([test node opts]
+   (util/await-fn
+     (fn open-and-test []
+       (let [conn (open test node opts)]
+         (try
+           (j/execute-one! conn ["select UUID()"])
+           conn
+           (catch Throwable t
+             (close! conn)
+             (throw t)))))
+     {:retry-interval 500
+      :log-interval   10000
+      :log-message    "Waiting for MySQL"})))
 
 (defn set-transaction-isolation!
   "Sets the transaction isolation level on a connection. Returns conn."
@@ -92,6 +103,15 @@
   "Captures and remaps MySQL errors, returning them as failed/info operations."
   [op & body]
   `(try ~@body
+        (catch ExceptionInfo e#
+          (info "Caught ExceptionInfo caused by"
+                (when-let [c# (.getCause e#)]
+                  (str (class c#) " " (.getMessage c#))))
+          (assoc ~op :type :info, :error [:exception-info (.getMessage e#)]))
+
+        (catch CommunicationsException e#
+          (assoc ~op :type :info, :error [:comms (.getMessage e#)]))
+
         (catch MySQLTransactionRollbackException e#
           (assoc ~op :type :fail, :error [:rollback (.getMessage e#)]))
 
@@ -101,7 +121,20 @@
             #"Unknown database"
             (assoc ~op :type :fail, :error [:unknown-db (.getMessage e#)])
 
+            ; Also obviously not a syntax error
+            #"Table '.+' doesn't exist"
+            (assoc ~op :type :fail, :error [:table-does-not-exist (.getMessage e#)])
+
             (throw e#)))
+
+        (catch SQLNonTransientConnectionException e#
+          (condp re-find (.getMessage e#)
+            ; Well this can't possibly have committed, so...
+            #"No operations allowed after connection closed"
+            (assoc ~op :type :fail, :error [:connection-closed (.getMessage e#)])
+
+            (throw e#)))
+
 
         (catch SQLException e#
           (condp re-find (.getMessage e#)
@@ -109,6 +142,6 @@
             (assoc ~op :type :fail, :error :deadlock)
 
             #"super-read-only"
-            (assoc ~op :type :fail, :error [:super-read-only (.getMessage e#)])
+            (assoc ~op :type :fail, :error [:super-read-only])
 
             (throw e#)))))

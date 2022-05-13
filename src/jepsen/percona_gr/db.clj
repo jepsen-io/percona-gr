@@ -22,7 +22,8 @@
             [next.jdbc.result-set :as rs]
             [next.jdbc.sql.builder :as sql]
             [slingshot.slingshot :refer [try+ throw+]])
-  (:import (java.util.concurrent Semaphore)))
+  (:import (com.mysql.cj.jdbc.exceptions CommunicationsException)
+           (java.util.concurrent Semaphore)))
 
 (def data-dir
   "Where does MySQL store data?"
@@ -210,7 +211,11 @@
     ; Get a connection to each node
     (let [conns (->> (:nodes test)
                      (map (fn [node]
-                            (let [conn (client/await-open test node)]
+                            (let [conn (client/await-open
+                                         test node
+                                         ; Shutting down GR is going to take
+                                         ; FOREVER
+                                         {:socketTimeout 1000000})]
                               (info "Connection to" node "established")
                               [node conn])))
                      (into {}))
@@ -353,7 +358,7 @@
     (c/su (cu/grepkill! :stop :mysql)))
 
   (resume! [this test node]
-    (c/su (cu/grepkill! :stop :mysql)))
+    (c/su (cu/grepkill! :cont :mysql)))
 
   db/Primary
   (setup-primary! [_ test node])
@@ -363,7 +368,9 @@
          (real-pmap (fn [node]
                       (try
                         (with-open [conn (client/open test node)]
-                          (primaries conn)))))
+                          (primaries conn))
+                        (catch CommunicationsException e
+                          nil))))
          (reduce set/union))))
 
 (defn db
