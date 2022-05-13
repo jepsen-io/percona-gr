@@ -22,18 +22,22 @@
 (def all-workloads
   (keys workloads))
 
+(def nemeses
+  "All faults we can perform"
+  #{:pause :kill :partition :recover :clock})
+
 (def all-nemeses
   "Combinations of nemeses for tests"
   [[]
-   [:partition]
-   [:kill]
-   [:pause]
-   [:pause :kill :partition :clock :member]])
+   [:partition :recover]
+   [:kill :recover]
+   [:pause :recover]
+   [:pause :kill :partition :clock :recover]])
 
 (def special-nemeses
   "A map of special nemesis names to collections of faults"
   {:none []
-   :all  [:pause :kill :partition :clock :member]})
+   :all  [:pause :kill :partition :clock :recover]})
 
 (defn parse-nemesis-spec
   "Takes a comma-separated nemesis string and returns a collection of keyword
@@ -67,9 +71,10 @@
                          ; Killing/pausing more than a single node tends to
                          ; royally break the cluster; we'll tackle that later.
                          :partition {:targets [:primaries]}
-                         :pause     {:targets [:primaries]}
-                         :kill      {:targets [:primaries]}
-                         :interval  (:nemesis-interval opts)})
+                         :pause     {:targets [:primaries :majority]}
+                         :kill      {:targets [:primaries :majority :all]}
+                         :interval         (:nemesis-interval opts)
+                         :recover-interval (:recover-interval opts)})
         ]
     (merge tests/noop-test
            opts
@@ -129,8 +134,9 @@
 
    [nil "--nemesis FAULTS" "A comma-separated list of nemesis faults to enable"
     :parse-fn parse-nemesis-spec
-    :validate [(partial every? #{:pause :kill :partition :clock :member})
-               "Faults must be pause, kill, partition, clock, or member, or the special faults all or none."]]
+    :validate [(partial every? nemeses)
+               (str (cli/one-of nemeses)
+                    " or the special faults all or none.")]]
 
    [nil "--nemesis-interval SECS" "Roughly how long between nemesis operations."
     :default  20
@@ -147,6 +153,11 @@
    ["-r" "--rate HZ" "Approximate number of requests per second, total"
     :default 1000
     :parse-fn read-string
+    :validate [#(and (number? %) (pos? %)) "Must be a positive number"]]
+
+   [nil "--recover-interval" "How often to recover the cluster during tests."
+    :default  10
+    :parse-fn parse-long
     :validate [#(and (number? %) (pos? %)) "Must be a positive number"]]
 
    [nil "--recovery-time" "How many seconds to wait for the cluster to recover at the end of the test."
