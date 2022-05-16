@@ -79,8 +79,13 @@
     (merge tests/noop-test
            opts
            {:name (str (name workload-name)
+                       (when (:single-node opts)
+                         " single-node")
                        " " (short-isolation (:isolation opts))
-                       " " (str/join "," (map name (:nemesis opts))))
+                       (when (:predicate-reads opts)
+                         " pred")
+                       (when (seq (:nemesis opts))
+                         " " (str/join "," (map name (:nemesis opts)))))
             :os   debian/os
             :db   db
             :checker (checker/compose
@@ -166,6 +171,8 @@
     :default  0
     :parse-fn read-string
     :validate [#(and (number? %) (not (neg? %))) "Must be a non-negative number"]]
+
+   [nil "--single-node" "If set, just runs a single Percona node rather than a GR cluster."]
 
    ["-w" "--workload NAME" "What workload should we run?"
     :parse-fn keyword

@@ -373,7 +373,54 @@
                           nil))))
          (reduce set/union))))
 
+(defrecord SingleNodeDB []
+  db/DB
+  (setup! [this test node]
+    (assert (= 1 (count (:nodes test))))
+    (install-percona! test)
+    (db/start! this test node)
+    (create-user!))
+
+  (teardown! [this test node]
+    (c/su
+      (db/kill! this test node)
+      (c/exec :rm :-rf
+              data-dir
+              "/etc/mysql/conf.d/jepsen.cnf"
+              (c/lit "/var/log/mysql/*"))))
+
+  db/LogFiles
+  (log-files [this test node]
+    {"/var/log/mysql/error.log" "error.log"})
+
+  db/Process
+  (start! [this test node]
+    (c/su
+      (c/exec :service :mysql :start)))
+
+  (kill! [this test node]
+    (c/su
+      (cu/grepkill! :mysql)
+      (c/exec :service :mysql :stop)))
+
+  db/Pause
+  (pause! [this test node]
+    (c/su (cu/grepkill! :stop :mysql)))
+
+  (resume! [this test node]
+    (c/su (cu/grepkill! :cont :mysql)))
+
+  db/Primary
+  (setup-primary! [_ test node])
+
+  (primaries [db test]
+    (:nodes test)))
+
 (defn db
-  "Constructs a new DB given options from the CLI."
+  "Constructs a new DB given options from the CLI. Options:
+
+  :single-node    If set, just runs a single node."
   [opts]
-  (DB. (promise) (atom false)))
+  (if (:single-node opts)
+    (SingleNodeDB.)
+    (DB. (promise) (atom false))))
