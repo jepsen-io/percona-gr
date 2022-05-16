@@ -14,7 +14,8 @@
             [next.jdbc.result-set :as rs]
             [next.jdbc.sql.builder :as sqlb]
             [slingshot.slingshot :refer [try+ throw+]])
-  (:import (java.sql SQLException)))
+  (:import (java.sql SQLException
+                     SQLIntegrityConstraintViolationException)))
 
 (def db-name
   "The database we use for this test"
@@ -55,27 +56,27 @@
                                k k (str e)]))
     (when txn? (j/execute! conn ["release savepoint upsert"]))
     true
-    ;(catch org.postgresql.util.PSQLException e
-    ;  (if (re-find #"duplicate key value" (.getMessage e))
-    ;    (do (info (if txn? "txn") "insert failed: " (.getMessage e))
-    ;        (when txn? (j/execute! conn ["rollback to savepoint upsert"]))
-    ;        false)
-    ;    (throw e)))
-    ))
+    (catch SQLIntegrityConstraintViolationException e
+      (if (re-find #"Duplicate entry" (.getMessage e))
+        (do (info (if txn? "txn") "insert failed: " (.getMessage e))
+            (when txn? (j/execute! conn ["rollback to savepoint upsert"]))
+            false)
+        (throw e)))))
 
 (defn update!
   "Performs an update of a key k, adding element e. Returns true if the update
   succeeded, false otherwise."
   [conn test table k e]
   (let [res (-> conn
-                (j/execute-one! [(str "update " table " set val = CONCAT(val, ',', ?)"
-                                      " where " (if (< (rand) 0.5) "id" "sk")
-                                      " = ?")
-                                 (str e) k]))]
-    (info :update res)
-    (-> res
-        :next.jdbc/update-count
-        pos?)))
+                (j/execute-one!
+                  [(str "update " table " set val = CONCAT(val, ',', ?)"
+                        " where "
+                        (if (and (:predicate-reads test) (< (rand) 0.5))
+                          "sk"
+                          "id")
+                        " = ?")
+                   (str e) k]))]
+    (-> res :next.jdbc/update-count pos?)))
 
 (defn append-using-update-or-insert!
   "Appends an element to a key using an UPDATE, and if that fails, backing off
@@ -105,7 +106,10 @@
         v' (case f
              :r (let [r (j/execute! conn
                                     [(str "select (val) from " table " where "
-                                          (if (< (rand) 0.5) "id" "sk")
+                                          (if (and (:predicate-reads test)
+                                                   (< (rand) 0.5))
+                                            "sk"
+                                            "id")
                                           " = ?")
                                      k]
                                     {:builder-fn rs/as-unqualified-lower-maps})]
@@ -142,7 +146,8 @@
                     [(str "create table if not exists " (table-name i)
                           " (id int not null primary key,
                           sk int not null,
-                          val text)")]))
+                          val text,
+                          INDEX (sk))")]))
       (catch SQLException e
         (condp re-find (.getMessage e)
           ; We're talking to a secondary that hasn't finished recovery

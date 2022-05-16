@@ -141,7 +141,11 @@
             #"Lock deadlock; Retry transaction"
             (assoc ~op :type :fail, :error :deadlock)
 
+            ; This tells us we're talking to a secondary; we'll sleep a bit to
+            ; do less ops here. Not *too* much--we still want to frequently
+            ; check these nodes so we can see stale reads.
             #"super-read-only"
-            (assoc ~op :type :fail, :error [:super-read-only])
+            (do (Thread/sleep 100)
+                (assoc ~op :type :fail, :error [:super-read-only]))
 
             (throw e#)))))

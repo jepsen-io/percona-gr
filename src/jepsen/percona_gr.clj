@@ -79,8 +79,7 @@
     (merge tests/noop-test
            opts
            {:name (str (name workload-name)
-                       " " (short-isolation (:isolation opts)) " ("
-                       (short-isolation (:expected-consistency-model opts)) ")"
+                       " " (short-isolation (:isolation opts))
                        " " (str/join "," (map name (:nemesis opts))))
             :os   debian/os
             :db   db
@@ -128,7 +127,7 @@
     :validate [pos? "Must be a positive integer"]]
 
    [nil "--max-writes-per-key NUM" "Maximum number of writes to any given key."
-    :default  256
+    :default  32
     :parse-fn parse-long
     :validate [pos? "Must be a positive integer."]]
 
@@ -144,6 +143,9 @@
     :validate [pos? "Must be a positive integer."]]
 
    [nil "--no-db" "Skips DB setup/teardown, running against an existing cluster. Useful for bypassing Percona's incredibly slow cluster setup process while testing."]
+
+   [nil "--[no-]predicate-reads" "If true, selects rows for reads/writes not just via primary key, but also via secondary keys."
+    :default true]
 
    [nil "--table-count NUM" "Number of tables to split rows across."
     :default 2
