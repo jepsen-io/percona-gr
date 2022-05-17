@@ -176,6 +176,11 @@
 
    [nil "--single-node" "If set, just runs a single Percona node rather than a GR cluster."]
 
+   [nil "--inter-mop-delay MILLIS" "Adds a random exponentially-distributed delay with the given mean in milliseconds, for each micro-op in a transaction."
+    :default 20
+    :parse-fn read-string
+    :validate [#(and (number? %) (not (neg? %))) "Must be a non-negative number"]]
+
    ["-w" "--workload NAME" "What workload should we run?"
     :parse-fn keyword
     :default  :list-append

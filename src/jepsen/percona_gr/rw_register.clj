@@ -120,6 +120,8 @@
                       (write-using-on-duplicate-key! conn test table k v)
                       (write-using-update-or-insert! conn test txn? table k v))
                     v))]
+    (when txn?
+      (Thread/sleep (util/rand-exp (:inter-mop-delay test))))
     [f k v']))
 
 ; initialized? is an atom which we set when we first use the connection--we set
