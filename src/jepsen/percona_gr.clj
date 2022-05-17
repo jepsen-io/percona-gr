@@ -115,7 +115,12 @@
 
 (def cli-opts
   "Additional CLI options"
-  [[nil "--expected-consistency-model MODEL" "What level of isolation do we *expect* to observe? Defaults to the same as --isolation."
+  [[nil "--abort-probability PROB" "Probability that we decide to abort a transaction just for grins"
+    :default 0.1
+    :parse-fn read-string
+    :validate [#(and (number? %) (pos? %)) "Must be a positive number"]]
+
+   [nil "--expected-consistency-model MODEL" "What level of isolation do we *expect* to observe? Defaults to the same as --isolation."
     :default :strict-serializable
     :parse-fn keyword]
 

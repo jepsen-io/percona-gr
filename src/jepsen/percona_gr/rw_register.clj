@@ -48,7 +48,7 @@
   back to it on failure."
   [conn test txn? table k e]
   (try
-    (info (if txn? "" "not") "in transaction")
+    ;(info (if txn? "" "not") "in transaction")
     (when txn? (j/execute! conn ["savepoint upsert"]))
     (j/execute! conn
                               [(str "insert into " table " (id, sk, val)"
@@ -168,7 +168,8 @@
             txn'     (if use-txn?
                        (j/with-transaction [t conn
                                             {:isolation (:isolation test)}]
-                         (mapv (partial mop! t test true) txn))
+                         (c/with-rand-aborts test
+                           (mapv (partial mop! t test true) txn)))
                        ; No txn
                        (mapv (partial mop! conn test false) txn))]
         (assoc op :type :ok, :value txn'))))
