@@ -12,12 +12,14 @@
             [jepsen.os.debian :as debian]
             [jepsen.percona-gr [db :as db]
                                [list-append :as list-append]
-                               [nemesis :as nemesis]]))
+                               [nemesis :as nemesis]
+                               [rw-register :as rw-register]]))
 
 (def workloads
   "A map of workload names to functions which take CLI options and construct
   partial test maps."
-  {:list-append list-append/workload})
+  {:list-append list-append/workload
+   :rw-register rw-register/workload})
 
 (def all-workloads
   (keys workloads))
