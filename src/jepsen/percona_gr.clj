@@ -87,7 +87,7 @@
                        (when (:predicate-reads opts)
                          " pred")
                        (when (seq (:nemesis opts))
-                         " " (str/join "," (map name (:nemesis opts)))))
+                         (str " " (str/join "," (map name (:nemesis opts))))))
             :os   debian/os
             :db   db
             :checker (checker/compose

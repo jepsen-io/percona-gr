@@ -162,8 +162,8 @@
     (c/with-errors op
       (when-not @initialized?
         (j/execute! conn [(str "use " db-name)])
-        ; Juuust in case?
-        ;(c/set-transaction-isolation! conn (:isolation test))
+        ; For individual ops
+        (c/set-transaction-isolation! conn (:isolation test))
         (reset! initialized? true))
 
       (let [txn      (:value op)
