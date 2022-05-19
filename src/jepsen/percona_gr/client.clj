@@ -110,52 +110,63 @@
 (defmacro with-errors
   "Captures and remaps MySQL errors, returning them as failed/info operations."
   [op & body]
-  `(try+ ~@body
-         (catch [:type :abort] e#
-           (assoc ~op :type :fail, :error :abort))
+  `(try
+     ; A bit weird, but I'm not entirely sure how the
+     ; order/pattern-matching/inheritance rules intersect when we do predicate
+     ; matches like this mixed with catching normal ExceptionInfos, so we break
+     ; them up separately.
+     (try+ ~@body
+           (catch [:type :abort] e#
+             (assoc ~op :type :fail, :error :abort)))
 
-         (catch ExceptionInfo e#
-           (info "Caught ExceptionInfo caused by"
-                 (when-let [c# (.getCause e#)]
-                   (str (class c#) " " (.getMessage c#))))
-           (assoc ~op :type :info, :error [:exception-info (.getMessage e#)]))
+     (catch CommunicationsException e#
+       (assoc ~op :type :info, :error [:comms (.getMessage e#)]))
 
-         (catch CommunicationsException e#
-           (assoc ~op :type :info, :error [:comms (.getMessage e#)]))
+     (catch MySQLTransactionRollbackException e#
+       (assoc ~op :type :fail, :error [:rollback (.getMessage e#)]))
 
-         (catch MySQLTransactionRollbackException e#
-           (assoc ~op :type :fail, :error [:rollback (.getMessage e#)]))
+     (catch SQLSyntaxErrorException e#
+       (condp re-find (.getMessage e#)
+         ; This is obviously not a syntax error, what the hell
+         #"Unknown database"
+         (assoc ~op :type :fail, :error [:unknown-db (.getMessage e#)])
 
-         (catch SQLSyntaxErrorException e#
-           (condp re-find (.getMessage e#)
-             ; This is obviously not a syntax error, what the hell
-             #"Unknown database"
-             (assoc ~op :type :fail, :error [:unknown-db (.getMessage e#)])
+         ; Also obviously not a syntax error
+         #"Table '.+' doesn't exist"
+         (assoc ~op :type :fail, :error [:table-does-not-exist (.getMessage e#)])
 
-             ; Also obviously not a syntax error
-             #"Table '.+' doesn't exist"
-             (assoc ~op :type :fail, :error [:table-does-not-exist (.getMessage e#)])
+         (throw e#)))
 
-             (throw e#)))
+     (catch SQLNonTransientConnectionException e#
+       (condp re-find (.getMessage e#)
+         ; This explicitly says transaction resolution unknown
+         #"Communications link failure during rollback"
+         (assoc ~op :type :info, :error [:link-failure-during-rollback
+                                         (.getMessage e#)])
 
-         (catch SQLNonTransientConnectionException e#
-           (condp re-find (.getMessage e#)
-             ; Well this can't possibly have committed, so...
-             #"No operations allowed after connection closed"
-             (assoc ~op :type :fail, :error [:connection-closed (.getMessage e#)])
+         ; Well this can't possibly have committed, so...
+         #"No operations allowed after connection closed"
+         (assoc ~op :type :fail, :error [:connection-closed (.getMessage e#)])
 
-             (throw e#)))
+         (do (warn "Don't know how how to handle SQLNonTransientConnectionException with message" (pr-str (.getMessage e#)))
+             (throw e#))))
 
-         (catch SQLException e#
-           (condp re-find (.getMessage e#)
-             #"Lock deadlock; Retry transaction"
-             (assoc ~op :type :fail, :error :deadlock)
+     (catch SQLException e#
+       (condp re-find (.getMessage e#)
+         #"Lock deadlock; Retry transaction"
+         (assoc ~op :type :fail, :error :deadlock)
 
-             ; This tells us we're talking to a secondary; we'll sleep a bit to
-             ; do less ops here. Not *too* much--we still want to frequently
-             ; check these nodes so we can see stale reads.
-             #"super-read-only"
-             (do (Thread/sleep 100)
-                 (assoc ~op :type :fail, :error [:super-read-only]))
+         ; This tells us we're talking to a secondary; we'll sleep a bit to
+         ; do less ops here. Not *too* much--we still want to frequently
+         ; check these nodes so we can see stale reads.
+         #"super-read-only"
+         (do (Thread/sleep 100)
+             (assoc ~op :type :fail, :error [:super-read-only]))
 
-             (throw e#)))))
+         (throw e#)))
+
+     (catch ExceptionInfo e#
+       (info "Caught ExceptionInfo caused by"
+             (when-let [c# (.getCause e#)]
+               (str (class c#) " " (.getMessage c#))))
+       (assoc ~op :type :info, :error [:exception-info (.getMessage e#)]))))
