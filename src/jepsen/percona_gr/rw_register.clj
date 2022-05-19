@@ -116,8 +116,10 @@
                       v (:val (first r))]
                   (when v (long v)))
 
-             :w (do (if (< (rand) 0.5)
+             :w (do (case (c/rand-upsert-method test)
+                      :on-dup-key
                       (write-using-on-duplicate-key! conn test table k v)
+                      :update-insert
                       (write-using-update-or-insert! conn test txn? table k v))
                     v))]
     (when txn?

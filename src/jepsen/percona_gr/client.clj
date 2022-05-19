@@ -170,3 +170,12 @@
              (when-let [c# (.getCause e#)]
                (str (class c#) " " (.getMessage c#))))
        (assoc ~op :type :info, :error [:exception-info (.getMessage e#)]))))
+
+(defn rand-upsert-method
+  "Takes a test and returns a randomly chosen method to perform an upsert for a
+  test: either :on-dup-key or :update-insert"
+  [test]
+  (rand-nth
+    (cond-> []
+      (:update-insert test) (conj :update-insert)
+      (:on-dup-key test)    (conj :on-dup-key))))

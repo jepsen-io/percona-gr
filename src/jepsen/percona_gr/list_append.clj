@@ -117,8 +117,10 @@
                     (mapv parse-long (str/split v #","))))
 
              :append
-             (do (if (< (rand) 0.5)
+             (do (case (c/rand-upsert-method test)
+                   :on-dup-key
                    (append-using-on-duplicate-key! conn test table k v)
+                   :update-insert
                    (append-using-update-or-insert! conn test txn? table k v))
                  v))]
     (when txn?

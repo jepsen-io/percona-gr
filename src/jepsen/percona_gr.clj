@@ -120,6 +120,9 @@
     :parse-fn read-string
     :validate [#(and (number? %) (pos? %)) "Must be a positive number"]]
 
+   [nil "--[no-]on-dup-key" "If true, enables writes using INSERT ... ON DUPLICATE_KEY"
+    :default true]
+
    [nil "--expected-consistency-model MODEL" "What level of isolation do we *expect* to observe? Defaults to the same as --isolation."
     :default :strict-serializable
     :parse-fn keyword]
@@ -185,6 +188,9 @@
     :default 20
     :parse-fn read-string
     :validate [#(and (number? %) (not (neg? %))) "Must be a non-negative number"]]
+
+   [nil "--[no-]update-insert" "If true, performs upserts using an update, falling back to an insert, then trying an update again if necessary."
+    :default true]
 
    ["-w" "--workload NAME" "What workload should we run?"
     :parse-fn keyword
