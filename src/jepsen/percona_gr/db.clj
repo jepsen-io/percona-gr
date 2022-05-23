@@ -9,6 +9,7 @@
             [jepsen [control :as c]
                     [core :as jepsen]
                     [db :as db]
+                    [lazyfs :as lazyfs]
                     [util :as util :refer [pprint-str]]]
             [jepsen.control [net :as cn]
                             [util :as cu]]
@@ -28,6 +29,10 @@
 (def data-dir
   "Where does MySQL store data?"
   "/var/lib/mysql")
+
+(def os-user
+  "What linux username owns mysql files?"
+  "mysql")
 
 (def expected-version
   "This is sort of fragile, but we expect this version to get installed from
@@ -335,7 +340,7 @@
     (c/su
       (db/kill! this test node)
       (c/exec :rm :-rf
-              data-dir
+              (c/lit data-dir "/*")
               "/etc/mysql/conf.d/jepsen.cnf"
               (c/lit "/var/log/mysql/*"))))
 
@@ -385,7 +390,7 @@
     (c/su
       (db/kill! this test node)
       (c/exec :rm :-rf
-              data-dir
+              (c/lit (str data-dir "/*"))
               "/etc/mysql/conf.d/jepsen.cnf"
               (c/lit "/var/log/mysql/*"))))
 
@@ -416,11 +421,58 @@
   (primaries [db test]
     (:nodes test)))
 
+(defrecord LazyFSDB [lazyfs percona]
+  db/DB
+  (setup! [_ test node]
+    ; So we have the right user
+    (install-percona! test)
+    (db/setup! lazyfs test node)
+    (db/setup! percona test node))
+
+  (teardown! [_ test node]
+    (db/teardown! percona test node)
+    (db/teardown! lazyfs test node))
+
+  db/Primary
+  (setup-primary! [_ test node]
+    (db/setup-primary! percona test node))
+
+  (primaries [_ test]
+    (db/primaries percona test))
+
+  db/LogFiles
+  (log-files [_ test node]
+    (merge (db/log-files percona test node)
+           (db/log-files lazyfs test node)))
+
+  db/Process
+  (start! [_ test node]
+    (db/start! percona test node))
+
+  (kill! [_ test node]
+    (db/kill! percona test node)
+    (lazyfs/lose-unfsynced-writes! lazyfs))
+
+  db/Pause
+  (pause! [_ test node]
+    (db/pause! percona test node))
+
+  (resume! [_ test node]
+    (db/resume! percona test node)))
+
+(defn lazyfs-db
+  "Wraps a Percona database, making sure its data directory is a lazyfs mount."
+  [percona]
+  (LazyFSDB. (lazyfs/db {:dir  data-dir
+                         :user os-user})
+             percona))
+
 (defn db
   "Constructs a new DB given options from the CLI. Options:
 
   :single-node    If set, just runs a single node."
   [opts]
-  (if (:single-node opts)
-    (SingleNodeDB.)
-    (DB. (promise) (atom false))))
+  (cond-> (if (:single-node opts)
+            (SingleNodeDB.)
+            (DB. (promise) (atom false)))
+    (:lazyfs opts) lazyfs-db))

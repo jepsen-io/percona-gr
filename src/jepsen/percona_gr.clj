@@ -136,6 +136,8 @@
                  :serializable}
                "Should be one of read-uncommitted, read-committed, repeatable-read, or serializable"]]
 
+   [nil "--lazyfs" "If set, mounts the data directory in a lazyfs, and drops unfsynced writes on process kill."]
+
    [nil "--max-txn-length NUM" "Maximum number of operations in a transaction."
     :default  4
     :parse-fn parse-long
@@ -181,6 +183,8 @@
     :default  0
     :parse-fn read-string
     :validate [#(and (number? %) (not (neg? %))) "Must be a non-negative number"]]
+
+   [nil "--select-for-update" "If set, uses SELECT ... FOR UPDATE on reads when we know a write is coming."]
 
    [nil "--single-node" "If set, just runs a single Percona node rather than a GR cluster."]
 
