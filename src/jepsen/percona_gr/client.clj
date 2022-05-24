@@ -153,6 +153,9 @@
 
      (catch SQLException e#
        (condp re-find (.getMessage e#)
+         #"Error on observer while running replication hook 'before_commit'"
+         (assoc ~op :type :info, :error [:before-commit-hook (.getMessage e#)])
+
          #"Lock deadlock; Retry transaction"
          (assoc ~op :type :fail, :error :deadlock)
 
