@@ -17,6 +17,23 @@
   (:import (java.sql SQLException
                      SQLIntegrityConstraintViolationException)))
 
+(defn will-write?
+  "Takes a transaction and the index of a mop in that transaction. Returns true
+  iff that key will be written at some later point in the transaction."
+  [txn i]
+  (let [k (get-in txn [i 1])
+        n (count txn)]
+    (loop [i i]
+      (if (<= n i)
+        ; Didn't find anything
+        false
+
+        (let [[f k2] (nth txn i)]
+          (if (and (not= :r f) (= k k2))
+            ; A later write of k!
+            true
+            (recur (inc i))))))))
+
 (def db-name
   "The database we use for this test"
   "jepsen_append")
@@ -99,19 +116,26 @@
 
 (defn mop!
   "Apply a single transaction micro-operation on a connection. Returns the
-  completed micro-op."
-  [conn test txn? [f k v]]
+  completed micro-op. Takes a connection, a test map, whether we're in a JDBC
+  transactional context or not, a txn vector, an index of the current mop in
+  that vector, and the mop itself."
+  [conn test txn? txn i [f k v]]
   (let [table-count (:table-count test)
         table       (table-for table-count k)
         v' (case f
-             :r (let [r (j/execute! conn
-                                    [(str "select (val) from " table " where "
-                                          (if (and (:predicate-reads test)
-                                                   (< (rand) 0.5))
-                                            "sk"
-                                            "id")
-                                          " = ?")
-                                     k]
+             :r (let [query [(str "select (val) from " table " where "
+                                  (if (and (:predicate-reads test)
+                                           (< (rand) 0.5))
+                                    "sk"
+                                    "id")
+                                  " = ?"
+                                  (when (will-write? txn i)
+                                    (case (:select-for test)
+                                      :update " FOR UPDATE"
+                                      :share  " FOR SHARE"
+                                      nil     "")))
+                             k]
+                      r (j/execute! conn query
                                     {:builder-fn rs/as-unqualified-lower-maps})]
                   (when-let [v (:val (first r))]
                     (mapv parse-long (str/split v #","))))
@@ -174,9 +198,11 @@
                        (j/with-transaction [t conn
                                             {:isolation (:isolation test)}]
                          (c/with-rand-aborts test
-                           (mapv (partial mop! t test true) txn)))
+                           (vec (map-indexed (fn [i mop]
+                                               (mop! t test true txn i mop))
+                                             txn))))
                        ; No txn
-                       (mapv (partial mop! conn test false) txn))]
+                       (mapv (partial mop! conn test false txn 0) txn))]
         (assoc op :type :ok, :value txn'))))
 
   (teardown! [_ test])

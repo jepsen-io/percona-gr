@@ -86,6 +86,8 @@
                        " " (short-isolation (:isolation opts))
                        (when (:predicate-reads opts)
                          " pred")
+                       (when-let [sf (:select-for opts)]
+                         (str " select-for=" (name sf)))
                        (when (seq (:nemesis opts))
                          (str " " (str/join "," (map name (:nemesis opts))))))
             :os   debian/os
@@ -184,7 +186,9 @@
     :parse-fn read-string
     :validate [#(and (number? %) (not (neg? %))) "Must be a non-negative number"]]
 
-   [nil "--select-for-update" "If set, uses SELECT ... FOR UPDATE on reads when we know a write is coming."]
+   [nil "--select-for UPDATE-OR-SHARE" "If set, uses SELECT ... FOR UPDATE or FOR SHARE on reads when we know a write is coming."
+    :parse-fn #(keyword (.toLowerCase %))
+    :validate [#{:share :update} "Must be either update or share"]]
 
    [nil "--single-node" "If set, just runs a single Percona node rather than a GR cluster."]
 

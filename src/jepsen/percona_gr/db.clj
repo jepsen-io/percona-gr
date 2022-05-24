@@ -340,7 +340,7 @@
     (c/su
       (db/kill! this test node)
       (c/exec :rm :-rf
-              (c/lit data-dir "/*")
+              (c/lit (str data-dir "/*"))
               "/etc/mysql/conf.d/jepsen.cnf"
               (c/lit "/var/log/mysql/*"))))
 
