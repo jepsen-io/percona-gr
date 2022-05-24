@@ -1,11 +1,15 @@
 # Jepsen Percona Group Replication Test
 
 A test harness for Percona Server with Group Replication, verifying isolation
-levels up to repeatable read.
+levels up to strict serializable.
 
 ## Usage
 
-FIXME
+For example, try:
+
+```
+lein run test --time-limit 300 --isolation repeatable-read --expected-consistency repeatable-read --rate 1000 --concurrency 3n --select-for share --nemesis partition,recover
+```
 
 ## License
 
