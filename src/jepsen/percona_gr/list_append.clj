@@ -129,12 +129,20 @@
                                     "sk"
                                     "id")
                                   " = ?"
-                                  (when (will-write? txn i)
-                                    (case (:select-for test)
-                                      :update " FOR UPDATE"
-                                      :share  " FOR SHARE"
-                                      nil     "")))
+                                  (case (:select-for test)
+                                    :update (when (will-write? txn i)
+                                              " FOR UPDATE")
+                                    :share (when (will-write? txn i)
+                                             " FOR SHARE")
+                                    ; For share+update, we take out a share on
+                                    ; every read NOT written later, and an
+                                    ; update if it will be written later.
+                                    :share+update (if (will-write? txn i)
+                                                    " FOR UPDATE"
+                                                    " FOR SHARE")
+                                    nil ""))
                              k]
+                      _ (info :q query)
                       r (j/execute! conn query
                                     {:builder-fn rs/as-unqualified-lower-maps})]
                   (when-let [v (:val (first r))]

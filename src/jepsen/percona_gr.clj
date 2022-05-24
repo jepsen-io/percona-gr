@@ -188,7 +188,7 @@
 
    [nil "--select-for UPDATE-OR-SHARE" "If set, uses SELECT ... FOR UPDATE or FOR SHARE on reads when we know a write is coming."
     :parse-fn #(keyword (.toLowerCase %))
-    :validate [#{:share :update} "Must be either update or share"]]
+    :validate [#{:share :update :share+update} "Must be either share, update, or share+update. Share and update take out FOR SHARE and FOR UPDATE on every select. Choosing share+update takes out at *least* a FOR SHARE on every select, and a FOR UPDATE when the row will be written later."]]
 
    [nil "--single-node" "If set, just runs a single Percona node rather than a GR cluster."]
 
