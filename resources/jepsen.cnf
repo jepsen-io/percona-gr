@@ -38,8 +38,12 @@ replica_parallel_workers=32
 super_read_only=%SUPER_READ_ONLY%
 
 # We have to stop GR as a part of restarting the cluster, which we have to do during setup, so we lower the timeout here.
-group_replication_components_stop_timeout=5
+group_replication_components_stop_timeout=2
 group_replication_recovery_reconnect_interval=3
+# Maybe this might help?
+group_replication_unreachable_majority_timeout=10
+group_replication_recovery_retry_count=3
+
 
 # Misc options to add later?
 binlog_transaction_dependency_tracking=WRITESET

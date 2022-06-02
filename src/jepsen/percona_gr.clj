@@ -70,9 +70,7 @@
                         {:db        db
                          :nodes     (:nodes opts)
                          :faults    (:nemesis opts)
-                         ; Killing/pausing more than a single node tends to
-                         ; royally break the cluster; we'll tackle that later.
-                         :partition {:targets [:primaries]}
+                         :partition {:targets [:primaries :majority :majorities-ring]}
                          :pause     {:targets [:primaries :majority]}
                          :kill      {:targets [:primaries :majority :all]}
                          :interval         (:nemesis-interval opts)
