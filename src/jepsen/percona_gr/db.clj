@@ -83,17 +83,22 @@
         c/ssh*
         jepsen.control.core/throw-on-nonzero-exit)))
 
-(defn configure!
-  "Writes config files for the server. Options are:
-
-  :seeds            List of nodes to connect to as seeds. Local node will be
-                    filtered out of this list.
-  :start-on-boot?   true/false
-  :super-read-only? true/false"
+(defn configure-common!
+  "Writes config files for the server for both GR and single-node deployments."
   [test node opts]
-  (info "Writing config file")
+  (info "Writing common config file")
   (c/su
-    (-> (io/resource "jepsen.cnf")
+    (-> (io/resource "common.cnf")
+        slurp
+        (str/replace #"%INNODB_FLUSH_METHOD%" (:innodb-flush-method test))
+        (cu/write-file! "/etc/mysql/conf.d/common.cnf"))))
+
+(defn configure-gr!
+  "Writes config files for the server for GR deployments."
+  [test node opts]
+  (info "Writing GR config file")
+  (c/su
+    (-> (io/resource "gr.cnf")
         slurp
         (str/replace #"%SERVER_ID%" (str (server-id node test)))
         (str/replace #"%GR_LOCAL_ADDRESS%" (str (cn/ip node) ":" replica-port))
@@ -109,7 +114,19 @@
         (str/replace #"%SUPER_READ_ONLY%" (if (:super-read-only? opts)
                                             "ON"
                                             "OFF"))
-        (cu/write-file! "/etc/mysql/conf.d/jepsen.cnf"))))
+        (cu/write-file! "/etc/mysql/conf.d/gr.cnf"))))
+
+(defn configure!
+  "Writes config files for the server. Options are:
+
+  :seeds            List of nodes to connect to as seeds. Local node will be
+                    filtered out of this list.
+  :start-on-boot?   true/false
+  :super-read-only? true/false"
+  [test node opts]
+  (configure-common! test node opts)
+  (when-not (:single-node test)
+    (configure-gr! test node opts)))
 
 (defn create-replication-user!
   "Creates a replication user on each node."
@@ -341,7 +358,8 @@
       (db/kill! this test node)
       (c/exec :rm :-rf
               (c/lit (str data-dir "/*"))
-              "/etc/mysql/conf.d/jepsen.cnf"
+              "/etc/mysql/conf.d/common.cnf"
+              "/etc/mysql/conf.d/gr.cnf"
               (c/lit "/var/log/mysql/*"))))
 
   db/LogFiles
@@ -383,6 +401,7 @@
   (setup! [this test node]
     (assert (= 1 (count (:nodes test))))
     (install-percona! test)
+    (configure! test node {})
     (db/start! this test node)
     (create-user!))
 
@@ -391,7 +410,8 @@
       (db/kill! this test node)
       (c/exec :rm :-rf
               (c/lit (str data-dir "/*"))
-              "/etc/mysql/conf.d/jepsen.cnf"
+              "/etc/mysql/conf.d/common.cnf"
+              "/etc/mysql/conf.d/gr.cnf"
               (c/lit "/var/log/mysql/*"))))
 
   db/LogFiles
@@ -427,7 +447,11 @@
     ; So we have the right user
     (install-percona! test)
     (db/setup! lazyfs test node)
-    (db/setup! percona test node))
+    (db/setup! percona test node)
+    ; I've seen some really weird errors around e.g. empty RSA key files which
+    ; make me think maybe we aren't even getting the initial data synced, so
+    ; let's force that here.
+    (lazyfs/checkpoint! lazyfs))
 
   (teardown! [_ test node]
     (db/teardown! percona test node)

@@ -127,6 +127,9 @@
     :default :strict-serializable
     :parse-fn keyword]
 
+   [nil "--innodb-flush-method METHOD" "How InnoDB should flush data. Passed directly to mysql's config."
+    :default "O_DIRECT"]
+
    ["-i" "--isolation LEVEL" "What level of isolation we should set: serializable, repeatable-read, etc."
     :default :serializable
     :parse-fn keyword

@@ -1,0 +1,3 @@
+# Options shared across both single-node and GR deployments
+[mysqld]
+innodb_flush_method=%INNODB_FLUSH_METHOD%
