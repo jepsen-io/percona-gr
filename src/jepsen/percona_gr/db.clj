@@ -26,6 +26,29 @@
   (:import (com.mysql.cj.jdbc.exceptions CommunicationsException)
            (java.util.concurrent Semaphore)))
 
+(def hostname->node-cache
+  "A cache for hostnames to nodes."
+  (atom {}))
+
+(defn hostname->node
+  "When node names are not their local hostnames (hi, ec2), we need to be able
+  to map backwards. Percona thinks in terms of local hostnames--this function
+  maps those back to node names."
+  [test hostname]
+  (or (get @hostname->node-cache hostname)
+      (let [m (c/on-nodes test (fn [test node]
+                                 (c/exec :hostname)))
+            node (first
+                   (keep (fn [[node hostname']]
+                           (info :node node :hostname' hostname' :hostname hostname)
+                           (when (= hostname hostname')
+                             node))
+                         m))]
+        (assert node (str "No node for hostname " hostname " (knew about "
+                          (pr-str m) ")"))
+        (swap! hostname->node-cache assoc hostname node)
+        node)))
+
 (def data-dir
   "Where does MySQL store data?"
   "/var/lib/mysql")
@@ -207,10 +230,11 @@
 
 (defn primaries
   "Returns the nodes we think are primaries on this connection."
-  [conn]
+  [test conn]
   (->> (j/execute! conn ["SELECT MEMBER_HOST FROM performance_schema.replication_group_members WHERE MEMBER_ROLE = 'PRIMARY'"]
                   {:builder-fn rs/as-unqualified-lower-maps})
        (map :member_host)
+       (map (partial hostname->node test))
        set))
 
 (defn recover-cluster!
@@ -341,7 +365,7 @@
     (jepsen/synchronize test)
 
     (with-open [conn (client/open test node)]
-      (let [primaries (primaries conn)]
+      (let [primaries (primaries test conn)]
         (info "Primaries are" (pr-str primaries))
         (when (seq primaries)
           ; At least some node thinks there's a primary!
@@ -364,6 +388,7 @@
 
   db/LogFiles
   (log-files [this test node]
+    (c/su (c/exec :chmod "a+r" "/var/log/mysql/error.log"))
     {"/var/log/mysql/error.log" "error.log"})
 
   db/Process
@@ -374,7 +399,12 @@
   (kill! [this test node]
     (c/su
       (cu/grepkill! :mysql)
-      (c/exec :service :mysql :stop)))
+      (try+ (c/exec :service :mysql :stop)
+            (catch [:exit 5] e
+              (if (re-find #"not loaded" (:err e))
+                ; That's fine; it's not installed yet
+                nil
+                (throw+ e))))))
 
   db/Pause
   (pause! [this test node]
@@ -391,7 +421,7 @@
          (real-pmap (fn [node]
                       (try
                         (with-open [conn (client/open test node)]
-                          (primaries conn))
+                          (primaries test conn))
                         (catch CommunicationsException e
                           nil))))
          (reduce set/union))))
@@ -416,6 +446,7 @@
 
   db/LogFiles
   (log-files [this test node]
+    (c/su (c/exec :chmod "a+r" "/var/log/mysql/error.log"))
     {"/var/log/mysql/error.log" "error.log"})
 
   db/Process
