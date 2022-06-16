@@ -8,7 +8,7 @@
                     [checker :as checker]
                     [generator :as gen]
                     [tests :as tests]
-                    [util :as util :refer [parse-long]]]
+                    [util :as util]]
             [jepsen.os.debian :as debian]
             [jepsen.percona-gr [db :as db]
                                [list-append :as list-append]

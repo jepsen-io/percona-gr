@@ -18,7 +18,7 @@
                      [string :as str]]
             [clojure.tools.logging :refer [info warn]]
             [dom-top.core :refer [loopr]]
-            [jepsen [util :refer [parse-long]]])
+            [jepsen [util]])
   (:import (com.google.common.collect Range
                                       RangeSet
                                       TreeRangeSet)))
@@ -72,10 +72,22 @@
 (defn range-set-union
   "Unions two RangeSets"
   [^RangeSet a ^RangeSet b]
-  (let [u (TreeRangeSet/create)]
-    (.addAll u a)
-    (.addAll u b)
-    u))
+  ; This complains "class com.google.common.collect.TreeRangeSet cannot be
+  ; cast to class java.lang.Iterable" for reasons I CANNOT explain and am
+  ; extremely frustrated by.
+  ; (let [u (TreeRangeSet/create)]
+  ; (.addAll ^TreeRangeSet u ^TreeRangeSet a)
+  ; (.addAll u b)
+  (cond (nil? a) b
+        (nil? b) a
+        true (let [u (TreeRangeSet/create)]
+               (loopr [] [r (.asRanges a)]
+                      (do (.add u r)
+                          (recur)))
+               (loopr [] [r (.asRanges b)]
+                      (do (.add u r)
+                          (recur)))
+               u)))
 
 (defn union
   "Combines GTID sets. Identity is an empty map. With one arg, returns that
@@ -93,7 +105,7 @@
   [gtid-set]
   (loopr [count 0]
          [[server ranges] gtid-set
-          range           (.asRanges ranges)]
+          range           (.asRanges ^RangeSet ranges)]
          (let [[lower upper] (range->pair range)]
            (recur (+ count 1 (- upper lower))))))
 
