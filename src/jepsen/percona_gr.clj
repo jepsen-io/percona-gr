@@ -187,7 +187,7 @@
     :parse-fn read-string
     :validate [#(and (number? %) (not (neg? %))) "Must be a non-negative number"]]
 
-   [nil "--select-for UPDATE-OR-SHARE" "If set, uses SELECT ... FOR UPDATE or FOR SHARE on reads when we know a write is coming."
+   [nil "--select-for MODE" "If set, uses SELECT ... FOR UPDATE or FOR SHARE on selects. Using `share` or `update` are applied to every select operation. `share+update` does a `FOR UPDATE` on rows that the transaction will write later, and `FOR SHARE` otherwise."
     :parse-fn #(keyword (.toLowerCase %))
     :validate [#{:share :update :share+update} "Must be either share, update, or share+update. Share and update take out FOR SHARE and FOR UPDATE on every select. Choosing share+update takes out at *least* a FOR SHARE on every select, and a FOR UPDATE when the row will be written later."]]
 
