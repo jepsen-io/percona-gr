@@ -8,7 +8,7 @@ levels up to strict serializable.
 For example, try:
 
 ```
-lein run test --time-limit 300 --isolation repeatable-read --expected-consistency repeatable-read --rate 1000 --concurrency 3n --select-for share --nemesis partition,recover
+lein run test --time-limit 300 --isolation repeatable-read --expected-consistency-model repeatable-read --rate 1000 --concurrency 3n --select-for share --nemesis partition,recover
 ```
 
 ## Workloads
